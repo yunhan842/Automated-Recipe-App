@@ -261,8 +261,8 @@ const filterRecipesConfig: ToolConfig = {
 
 const googleMapsGroceryStoresConfig: ToolConfig = {
   id: "google-maps-grocery-stores",
-  name: "Find Grocery Stores",
-  description: "Finds grocery stores near a location using the Google Maps API.",
+  name: "Find Grocery Stores with Delivery",
+  description: "Finds grocery stores near a location that may offer delivery using the Google Maps API.",
   input: z.object({
     location: z.string().describe("Location to search for grocery stores")
   }).describe("Input parameters for finding grocery stores"),
@@ -270,8 +270,8 @@ const googleMapsGroceryStoresConfig: ToolConfig = {
     name: z.string(),
     address: z.string(),
     rating: z.number().nullable(),
-    openNow: z.boolean().nullable()
-  })).describe("List of grocery stores near the location"),
+    openNow: z.boolean().nullable(),
+  })).describe("List of grocery stores near the location that may be big brands"),
   pricing: { pricePerUse: 0, currency: "USD" },
   handler: async ({ location }, agentInfo) => {
     console.log(`User / Agent ${agentInfo.id} requested grocery stores near ${location}`);
@@ -283,30 +283,42 @@ const googleMapsGroceryStoresConfig: ToolConfig = {
 
       const stores = response.data.results || [];
 
-      const groceryStores = stores.map((store: any) => ({
-        name: store.name,
-        address: store.formatted_address,
-        rating: store.rating || null,
-        openNow: store.opening_hours ? store.opening_hours.open_now : null
-      }));
+      // Define known brand names to filter big brands
+      const brandNames = ["Walmart", "Target", "Whole Foods", "Kroger", "Safeway", "Costco", "Trader Joe's", "Sam's Club", "Aldi", "Albertsons", "Publix", "H-E-B", "Sprouts"];
+
+      const groceryStores = stores
+        .map((store: any) => {
+          const isBigBrand = brandNames.some(brand => store.name.includes(brand));
+
+          return {
+            name: store.name,
+            address: store.formatted_address,
+            rating: store.rating || null,
+            openNow: store.opening_hours ? store.opening_hours.open_now : null,
+            isBigBrand
+          };
+        })
+        .filter(store => store.isBigBrand); // Filter by big brand only
 
       const uiData = {
         type: "card",
         uiData: JSON.stringify({
-          title: `Grocery Stores near ${location}`,
-          content: `Found ${groceryStores.length} grocery stores.`
+          title: `Grocery stores near ${location}`,
+          content: `Found ${groceryStores.length} big brand grocery stores.`
         }),
         children: [
           {
             type: "table",
             uiData: JSON.stringify({
               columns: [
-                { key: "name", header: "Store Name", width: "50%" },
-                { key: "address", header: "Address", width: "50%" }
+                { key: "name", header: "Store Name", width: "40%" },
+                { key: "address", header: "Address", width: "40%" },
+                { key: "openNow", header: "Open Now", width: "20%" }
               ],
               rows: groceryStores.map(store => ({
                 name: store.name,
-                address: store.address
+                address: store.address,
+                openNow: store.openNow ? "Yes" : "No"
               }))
             })
           }
@@ -314,27 +326,15 @@ const googleMapsGroceryStoresConfig: ToolConfig = {
       };
 
       return {
-        text: `Found ${groceryStores.length} grocery stores near ${location}.`,
+        text: `Found ${groceryStores.length} big brand grocery stores near ${location}.`,
         data: groceryStores,
         ui: uiData
       };
     } catch (error) {
       console.error("Error finding grocery stores:", error);
-      return {
-        text: "An error occurred while finding grocery stores. Please try again.",
-        data: [],
-        ui: {
-          type: "alert",
-          uiData: JSON.stringify({
-            type: "error",
-            title: "Error",
-            message: "Failed to find grocery stores. Please try again."
-          })
-        }
-      };
     }
-  },
-}
+  }
+};
 
 const dainService = defineDAINService({
   metadata: {
