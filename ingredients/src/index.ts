@@ -1,8 +1,6 @@
 import { z } from "zod";
 import axios from "axios";
-import * as dotenv from 'dotenv';
-dotenv.config({ path: '.env.kroger' });
-
+require('dotenv').config();
 
 import {
     defineDAINService,
@@ -261,81 +259,82 @@ const filterRecipesConfig: ToolConfig = {
   },
 };
 
-const OAUTH2_BASE_URL = process.env.OAUTH2_BASE_URL;
-const API_BASE_URL = process.env.API_BASE_URL;
-const KROGER_CLIENT_ID = process.env.KROGER_CLIENT_ID;
-const KROGER_CLIENT_SECRET = process.env.KROGER_CLIENT_SECRET;
-
-namespace querystring {
-  export function stringify(obj: any): string {
-    return Object.keys(obj)
-      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(obj[key])}`)
-      .join("&");
-  }
-}
-
-let cachedAccessToken: string | null = null;
-
-const krogerAuthConfig: ToolConfig = {
-  id: "kroger-auth",
-  name: "Kroger API Authentication",
-  description: "Authenticates with the Kroger API to obtain an access token",
-  input: z.object({}).describe("No input parameters required"),
-  output: z.object({
-    accessToken: z.string().describe("Access token for Kroger API"),
-  }).describe("Kroger API access token"),
+const googleMapsGroceryStoresConfig: ToolConfig = {
+  id: "google-maps-grocery-stores",
+  name: "Find Grocery Stores",
+  description: "Finds grocery stores near a location using the Google Maps API.",
+  input: z.object({
+    location: z.string().describe("Location to search for grocery stores")
+  }).describe("Input parameters for finding grocery stores"),
+  output: z.array(z.object({
+    name: z.string(),
+    address: z.string(),
+    rating: z.number().nullable(),
+    openNow: z.boolean().nullable()
+  })).describe("List of grocery stores near the location"),
   pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async (_, agentInfo) => {
-    console.log(`User / Agent ${agentInfo.id} requested Kroger API access token`);
+  handler: async ({ location }, agentInfo) => {
+    console.log(`User / Agent ${agentInfo.id} requested grocery stores near ${location}`);
 
     try {
-      const response = await axios.post(
-        `${OAUTH2_BASE_URL}/token`,
-        querystring.stringify({
-          grant_type: 'client_credentials',
-          scope: 'product.compact',
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${Buffer.from(
-              `${process.env.KROGER_CLIENT_ID}:${process.env.KROGER_CLIENT_SECRET}`
-            ).toString('base64')}`,
-          },
-        }
+      const response = await axios.get(
+        `https://maps.googleapis.com/maps/api/place/textsearch/json?query=grocery+store+near+${encodeURIComponent(location)}&key=${process.env.GOOGLE_MAPS_API_KEY}`
       );
 
-      cachedAccessToken = response.data.access_token;
+      const stores = response.data.results || [];
+
+      const groceryStores = stores.map((store: any) => ({
+        name: store.name,
+        address: store.formatted_address,
+        rating: store.rating || null,
+        openNow: store.opening_hours ? store.opening_hours.open_now : null
+      }));
+
+      const uiData = {
+        type: "card",
+        uiData: JSON.stringify({
+          title: `Grocery Stores near ${location}`,
+          content: `Found ${groceryStores.length} grocery stores.`
+        }),
+        children: [
+          {
+            type: "table",
+            uiData: JSON.stringify({
+              columns: [
+                { key: "name", header: "Store Name", width: "50%" },
+                { key: "address", header: "Address", width: "50%" }
+              ],
+              rows: groceryStores.map(store => ({
+                name: store.name,
+                address: store.address
+              }))
+            })
+          }
+        ]
+      };
 
       return {
-        text: "Successfully obtained access token for Kroger API.",
-        data: { accessToken: cachedAccessToken },
-        ui: {
-          type: "alert",
-          uiData: JSON.stringify({
-            type: "success",
-            title: "Success",
-            message: "Access token obtained successfully."
-          })
-        }
+        text: `Found ${groceryStores.length} grocery stores near ${location}.`,
+        data: groceryStores,
+        ui: uiData
       };
     } catch (error) {
-      console.error("Error fetching Kroger access token:", error);
+      console.error("Error finding grocery stores:", error);
       return {
-        text: "I'm sorry, but I encountered an error while trying to fetch the Kroger access token. Please try again later.",
-        data: null,
+        text: "An error occurred while finding grocery stores. Please try again.",
+        data: [],
         ui: {
           type: "alert",
           uiData: JSON.stringify({
             type: "error",
             title: "Error",
-            message: "Failed to fetch Kroger access token. Please try again."
+            message: "Failed to find grocery stores. Please try again."
           })
         }
       };
     }
   },
-};
+}
 
 const dainService = defineDAINService({
   metadata: {
@@ -350,7 +349,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [getRecipeConfig, suggestRandomRecipeConfig, filterRecipesConfig, krogerAuthConfig],
+  tools: [getRecipeConfig, suggestRandomRecipeConfig, filterRecipesConfig, googleMapsGroceryStoresConfig],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
