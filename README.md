@@ -1,2 +1,18 @@
 # Automated-Recipe-App
 Utilizes an AI voice agent to produce automated ingredients and steps for a variety of dishes
+
+# How to use DAIN
+
+in /ingredients run:
+```
+npm i
+npm run dev
+```
+
+## API Key's
+
+Get your DAIN API key:
+[DAIN Docs](https://docs.dain.org/docs/getting-started/services/services-sdk)
+
+Get your Google Maps API key:
+[Google Maps API Key](https://developers.google.com/maps/documentation/javascript/get-api-key)
