@@ -4,116 +4,259 @@ import { z } from "zod";
 import axios from "axios";
 
 import {
-  defineDAINService,
-  ToolConfig,
-  ServiceConfig,
-  ToolboxConfig,
-  ServiceContext,
-} from "@dainprotocol/service-sdk";
+    defineDAINService,
+    ToolConfig,
+    ServiceConfig,
+    ToolboxConfig,
+    ServiceContext,
+  } from "@dainprotocol/service-sdk";
 
-const getWeatherConfig: ToolConfig = {
-  id: "get-weather",
-  name: "Get Weather",
-  description: "Fetches current weather for a city",
-  input: z
-    .object({
-      latitude: z.number().describe("Latitude coordinate"),
-      longitude: z.number().describe("Longitude coordinate"),
-    })
-    .describe("Input parameters for the weather request"),
+const getRecipeConfig: ToolConfig = {
+    id: "get-recipe",
+    name: "Get Recipe",
+    description: "Fetches a recipe by name from TheMealDB API",
+    input: z
+      .object({
+        name: z.string().describe("Recipe name"),
+      })
+      .describe("Input parameters for the recipe request"),
+    output: z
+      .object({
+        name: z.string().describe("Recipe name"),
+        ingredients: z.array(z.string()).describe("List of ingredients"),
+        instructions: z.array(z.string()).describe("List of instructions"),
+      })
+      .describe("Recipe data"),
+    pricing: { pricePerUse: 0, currency: "USD" },
+    handler: async ({ name }, agentInfo) => {
+        console.log('User / Agent ${agentInfo.id} requested recipe for ${name}');
+      
+        const response = await axios.get(
+          `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(name)}`
+        );
+      
+        const recipe = response.data.meals[0]; // Note: The API returns 'meals', not 'results'
+      
+        // Prepare the data
+        const recipeData = {
+          name: recipe.strMeal,
+          ingredients: Object.keys(recipe)
+            .filter(key => key.startsWith('strIngredient') && recipe[key])
+            .map(key => `${recipe[key]} - ${recipe[`strMeasure${key.slice(13)}`]}`),
+          instructions: recipe.strInstructions.split('\n').filter(step => step.trim() !== '')
+        };
+      
+        // Prepare the UI
+        const uiData = {
+          type: "card",
+          uiData: JSON.stringify({
+            title: recipeData.name,
+            content: `Ingredients: ${recipeData.ingredients.length}\nSteps: ${recipeData.instructions.length}`
+          })
+        };
+      
+        return {
+          text: 'Found recipe for ${name}. It has ${recipeData.ingredients.length} ingredients and ${recipeData.instructions.length} steps.',
+          data: recipeData,
+          ui: uiData
+        };
+    },
+};
+
+const suggestRandomRecipeConfig: ToolConfig = {
+  id: "suggest-random-recipe",
+  name: "Suggest Random Recipe",
+  description: "Fetches a random recipe from TheMealDB API. Use this when asked for any random recipe suggestion.",
+  input: z.object({}).describe("No input parameters required"),
   output: z
     .object({
-      temperature: z.number().describe("Current temperature in Celsius"),
-      windSpeed: z.number().describe("Current wind speed in km/h"),
+      name: z.string().describe("Recipe name"),
+      ingredients: z.array(z.string()).describe("List of ingredients"),
+      instructions: z.array(z.string()).describe("List of instructions"),
     })
-    .describe("Current weather information"),
+    .describe("Random recipe data"),
   pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ latitude, longitude }, agentInfo) => {
-    console.log(
-      `User / Agent ${agentInfo.id} requested weather at ${latitude},${longitude}`
-    );
-
-    const response = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,wind_speed_10m`
-    );
-
-    const { temperature_2m, wind_speed_10m } = response.data.current;
-
-    return {
-      text: `The current temperature is ${temperature_2m}°C with wind speed of ${wind_speed_10m} km/h`,
-      data: {
-        temperature: temperature_2m,
-        windSpeed: wind_speed_10m,
-      },
-      ui: {},
-    };
+  handler: async (_, agentInfo) => {
+      console.log(`User / Agent ${agentInfo.id} requested a random recipe`);
+    
+      try {
+          const response = await axios.get(
+            `https://www.themealdb.com/api/json/v1/1/random.php`
+          );
+        
+          const recipe = response.data.meals[0];
+        
+          if (!recipe) {
+              throw new Error("No recipe found");
+          }
+        
+          // Prepare the data
+          const recipeData = {
+            name: recipe.strMeal,
+            ingredients: Object.keys(recipe)
+              .filter(key => key.startsWith('strIngredient') && recipe[key])
+              .map(key => `${recipe[key]} - ${recipe[`strMeasure${key.slice(13)}`]}`),
+            instructions: recipe.strInstructions.split('\n').filter(step => step.trim() !== '')
+          };
+        
+          // Prepare the UI
+          const uiData = {
+            type: "card",
+            uiData: JSON.stringify({
+              title: recipeData.name,
+              content: `Ingredients: ${recipeData.ingredients.length}\nSteps: ${recipeData.instructions.length}`
+            }),
+            children: [
+              {
+                type: "table",
+                uiData: JSON.stringify({
+                  columns: [
+                    { key: "ingredient", header: "Ingredient", width: "100%" }
+                  ],
+                  rows: recipeData.ingredients.map(ingredient => ({ ingredient }))
+                })
+              }
+            ]
+          };
+        
+          return {
+            text: `Here's a random recipe for ${recipeData.name}. It has ${recipeData.ingredients.length} ingredients and ${recipeData.instructions.length} steps.`,
+            data: recipeData,
+            ui: uiData
+          };
+      } catch (error) {
+          console.error("Error fetching random recipe:", error);
+          return {
+              text: "I'm sorry, but I encountered an error while trying to fetch a random recipe. Please try again later.",
+              data: null,
+              ui: {
+                  type: "alert",
+                  uiData: JSON.stringify({
+                      type: "error",
+                      title: "Error",
+                      message: "Failed to fetch a random recipe. Please try again."
+                  })
+              }
+          };
+      }
   },
 };
 
-const getWeatherForecastConfig: ToolConfig = {
-  id: "get-weather-forecast",
-  name: "Get Weather Forecast",
-  description: "Fetches hourly weather forecast",
-  input: z
-    .object({
-      latitude: z.number().describe("Latitude coordinate"),
-      longitude: z.number().describe("Longitude coordinate"),
-    })
-    .describe("Input parameters for the forecast request"),
-  output: z
-    .object({
-      times: z.array(z.string()).describe("Forecast times"),
-      temperatures: z
-        .array(z.number())
-        .describe("Temperature forecasts in Celsius"),
-      windSpeeds: z.array(z.number()).describe("Wind speed forecasts in km/h"),
-      humidity: z
-        .array(z.number())
-        .describe("Relative humidity forecasts in %"),
-    })
-    .describe("Hourly weather forecast"),
+const filterRecipesConfig: ToolConfig = {
+  id: "filter-recipes",
+  name: "Filter Recipes",
+  description: "Filters recipes by main ingredient, category, or area. Use this when asked to find recipes with specific ingredients, from a certain cuisine, or of a particular category.",
+  input: z.object({
+    filterType: z.enum(["ingredient", "category", "area"]).describe("Type of filter to apply"),
+    filterValue: z.string().describe("Value to filter by (e.g., 'chicken', 'Seafood', 'Italian')")
+  }).describe("Input parameters for recipe filtering"),
+  output: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    thumbnail: z.string()
+  })).describe("List of filtered recipes"),
   pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ latitude, longitude }, agentInfo) => {
-    console.log(
-      `User / Agent ${agentInfo.id} requested forecast at ${latitude},${longitude}`
-    );
+  handler: async ({ filterType, filterValue }, agentInfo) => {
+    console.log(`User / Agent ${agentInfo.id} filtered recipes by ${filterType}: ${filterValue}`);
 
-    const response = await axios.get(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m`
-    );
+    let endpoint;
+    switch (filterType) {
+      case "ingredient":
+        endpoint = `https://www.themealdb.com/api/json/v1/1/filter.php?i=${encodeURIComponent(filterValue)}`;
+        break;
+      case "category":
+        endpoint = `https://www.themealdb.com/api/json/v1/1/filter.php?c=${encodeURIComponent(filterValue)}`;
+        break;
+      case "area":
+        endpoint = `https://www.themealdb.com/api/json/v1/1/filter.php?a=${encodeURIComponent(filterValue)}`;
+        break;
+      default:
+        return {
+          text: `Invalid filter type: ${filterType}. Please use 'ingredient', 'category', or 'area'.`,
+          data: [],
+          ui: {
+            type: "alert",
+            uiData: JSON.stringify({
+              type: "error",
+              title: "Invalid Filter",
+              message: "Please specify a valid filter type: ingredient, category, or area."
+            })
+          }
+        };
+    }
 
-    const { time, temperature_2m, wind_speed_10m, relative_humidity_2m } =
-      response.data.hourly;
-
-    return {
-      text: `Weather forecast available for the next ${time.length} hours`,
-      data: {
-        times: time,
-        temperatures: temperature_2m,
-        windSpeeds: wind_speed_10m,
-        humidity: relative_humidity_2m,
-      },
-      ui: {},
-    };
+    try {
+      const response = await axios.get(endpoint);
+      const recipes = response.data.meals || [];
+  
+      const filteredRecipes = recipes.map((recipe: any) => ({
+        id: recipe.idMeal,
+        name: recipe.strMeal,
+        thumbnail: recipe.strMealThumb
+      }));
+  
+      // Prepare the UI
+      const uiData = {
+        type: "card",
+        uiData: JSON.stringify({
+          title: `Recipes filtered by ${filterType}: ${filterValue}`,
+          content: `Found ${filteredRecipes.length} recipes.`
+        }),
+        children: [
+          {
+            type: "table",
+            uiData: JSON.stringify({
+              columns: [
+                { key: "name", header: "Recipe Name", width: "70%" },
+                { key: "thumbnail", header: "Image", width: "30%", type: "image" }
+              ],
+              rows: filteredRecipes.map(recipe => ({
+                name: recipe.name,
+                thumbnail: recipe.thumbnail
+              }))
+            })
+          }
+        ]
+      };
+  
+      return {
+        text: `Found ${filteredRecipes.length} recipes filtered by ${filterType}: ${filterValue}.`,
+        data: filteredRecipes,
+        ui: uiData
+      };
+    } catch (error) {
+      console.error("Error filtering recipes:", error);
+      return {
+        text: "An error occurred while filtering recipes. Please try again.",
+        data: [],
+        ui: {
+          type: "alert",
+          uiData: JSON.stringify({
+            type: "error",
+            title: "Error",
+            message: "Failed to filter recipes. Please try again."
+          })
+        }
+      };
+    }
   },
 };
 
 const dainService = defineDAINService({
   metadata: {
-    title: "Weather DAIN Service",
+    title: "Recipe Service",
     description:
-      "A DAIN service for current weather and forecasts using Open-Meteo API",
+      "A DAIN service that provides recipes, ingredients, and instructions for various dishes. It can fetch specific recipes, suggest random recipes, and filter recipes by ingredient, category, or cuisine.",
     version: "1.0.0",
     author: "Your Name",
-    tags: ["weather", "forecast", "dain"],
-    logo: "https://cdn-icons-png.flaticon.com/512/252/252035.png"
+    tags: ["recipe", "ingredient", "cuisine", "food"],
   },
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [getWeatherConfig, getWeatherForecastConfig],
+  tools: [getRecipeConfig, suggestRandomRecipeConfig, filterRecipesConfig],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
-  console.log("Weather DAIN Service is running on port 2022");
+  console.log("Recipe DAIN Service is running on port 2022");
 });
