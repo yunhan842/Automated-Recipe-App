@@ -5,6 +5,7 @@ Utilizes an AI voice agent to produce automated ingredients and steps for a vari
 
 in /ingredients run:
 ```
+nvm i 20.7.0
 npm i
 npm run dev
 ```
