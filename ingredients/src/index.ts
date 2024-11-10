@@ -1,7 +1,8 @@
-//File: example/example-node.ts
-
 import { z } from "zod";
 import axios from "axios";
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.kroger' });
+
 
 import {
     defineDAINService,
@@ -35,9 +36,8 @@ const getRecipeConfig: ToolConfig = {
           `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(name)}`
         );
       
-        const recipe = response.data.meals[0]; // Note: The API returns 'meals', not 'results'
+        const recipe = response.data.meals[0]; 
       
-        // Prepare the data
         const recipeData = {
           name: recipe.strMeal,
           ingredients: Object.keys(recipe)
@@ -46,7 +46,6 @@ const getRecipeConfig: ToolConfig = {
           instructions: recipe.strInstructions.split('\n').filter(step => step.trim() !== '')
         };
       
-        // Prepare the UI
         const uiData = {
           type: "card",
           uiData: JSON.stringify({
@@ -90,7 +89,6 @@ const suggestRandomRecipeConfig: ToolConfig = {
               throw new Error("No recipe found");
           }
         
-          // Prepare the data
           const recipeData = {
             name: recipe.strMeal,
             ingredients: Object.keys(recipe)
@@ -99,7 +97,6 @@ const suggestRandomRecipeConfig: ToolConfig = {
             instructions: recipe.strInstructions.split('\n').filter(step => step.trim() !== '')
           };
         
-          // Prepare the UI
           const uiData = {
             type: "card",
             uiData: JSON.stringify({
@@ -195,7 +192,6 @@ const filterRecipesConfig: ToolConfig = {
         thumbnail: recipe.strMealThumb
       }));
   
-      // Prepare the UI
       const uiData = {
         type: "card",
         uiData: JSON.stringify({
@@ -242,6 +238,82 @@ const filterRecipesConfig: ToolConfig = {
   },
 };
 
+const OAUTH2_BASE_URL = process.env.OAUTH2_BASE_URL;
+const API_BASE_URL = process.env.API_BASE_URL;
+const KROGER_CLIENT_ID = process.env.KROGER_CLIENT_ID;
+const KROGER_CLIENT_SECRET = process.env.KROGER_CLIENT_SECRET;
+
+namespace querystring {
+  export function stringify(obj: any): string {
+    return Object.keys(obj)
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(obj[key])}`)
+      .join("&");
+  }
+}
+
+let cachedAccessToken: string | null = null;
+
+const krogerAuthConfig: ToolConfig = {
+  id: "kroger-auth",
+  name: "Kroger API Authentication",
+  description: "Authenticates with the Kroger API to obtain an access token",
+  input: z.object({}).describe("No input parameters required"),
+  output: z.object({
+    accessToken: z.string().describe("Access token for Kroger API"),
+  }).describe("Kroger API access token"),
+  pricing: { pricePerUse: 0, currency: "USD" },
+  handler: async (_, agentInfo) => {
+    console.log(`User / Agent ${agentInfo.id} requested Kroger API access token`);
+
+    try {
+      const response = await axios.post(
+        `${OAUTH2_BASE_URL}/token`,
+        querystring.stringify({
+          grant_type: 'client_credentials',
+          scope: 'product.compact',
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${Buffer.from(
+              `${process.env.KROGER_CLIENT_ID}:${process.env.KROGER_CLIENT_SECRET}`
+            ).toString('base64')}`,
+          },
+        }
+      );
+
+      cachedAccessToken = response.data.access_token;
+
+      return {
+        text: "Successfully obtained access token for Kroger API.",
+        data: { accessToken: cachedAccessToken },
+        ui: {
+          type: "alert",
+          uiData: JSON.stringify({
+            type: "success",
+            title: "Success",
+            message: "Access token obtained successfully."
+          })
+        }
+      };
+    } catch (error) {
+      console.error("Error fetching Kroger access token:", error);
+      return {
+        text: "I'm sorry, but I encountered an error while trying to fetch the Kroger access token. Please try again later.",
+        data: null,
+        ui: {
+          type: "alert",
+          uiData: JSON.stringify({
+            type: "error",
+            title: "Error",
+            message: "Failed to fetch Kroger access token. Please try again."
+          })
+        }
+      };
+    }
+  },
+};
+
 const dainService = defineDAINService({
   metadata: {
     title: "Recipe Service",
@@ -254,7 +326,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [getRecipeConfig, suggestRandomRecipeConfig, filterRecipesConfig],
+  tools: [getRecipeConfig, suggestRandomRecipeConfig, filterRecipesConfig, krogerAuthConfig],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
