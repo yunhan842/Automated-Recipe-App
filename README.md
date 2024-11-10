@@ -1,5 +1,5 @@
-# Automated-Recipe-App
-Utilizes an AI voice agent to produce automated ingredients and steps for a variety of dishes
+# Automated-Recipe-App (FlavorFetch)
+Utilizes an AI voice agent to produce automated ingredients and steps for a variety of dishes. Can also find nearby stores that users can order from.
 
 # How to use DAIN
 
