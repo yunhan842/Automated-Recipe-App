@@ -51,7 +51,24 @@ const getRecipeConfig: ToolConfig = {
           uiData: JSON.stringify({
             title: recipeData.name,
             content: `Ingredients: ${recipeData.ingredients.length}\nSteps: ${recipeData.instructions.length}`
-          })
+          }),
+          children: [
+            {
+              type: "imageCard",
+              uiData: JSON.stringify({
+                imageUrl: recipe.strMealThumb,
+              })
+            },
+            {
+              type: "table",
+              uiData: JSON.stringify({
+                columns: [
+                  { key: "ingredient", header: "Ingredient", width: "100%" }
+                ],
+                rows: recipeData.ingredients.map(ingredient => ({ ingredient }))
+              })
+            }
+          ]
         };
       
         return {
@@ -104,6 +121,12 @@ const suggestRandomRecipeConfig: ToolConfig = {
               content: `Ingredients: ${recipeData.ingredients.length}\nSteps: ${recipeData.instructions.length}`
             }),
             children: [
+              {
+                type: "imageCard",
+                uiData: JSON.stringify({
+                  imageUrl: recipe.strMealThumb,
+                })
+              },
               {
                 type: "table",
                 uiData: JSON.stringify({
